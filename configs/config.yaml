@@ -1,0 +1,43 @@
+# 模型配置
+model:
+  name: "segformer"
+  backbone: "mit_b2"  # 可选: mit_b0, mit_b1, mit_b2, mit_b3, mit_b4, mit_b5
+  num_classes: 2  # 二分类：背景(0)和前景(1)
+  pretrained: true
+
+# 数据配置
+data:
+  train_dir: "data/training"
+  val_dir: "data/validation"
+  img_size: [512, 512]  # 输入图像的大小 [高度, 宽度]
+  batch_size: 8
+  num_workers: 4
+  augmentation: true
+
+# 训练配置
+training:
+  epochs: 50
+  lr: 0.0001
+  weight_decay: 0.01
+  scheduler: "cosine"  # 学习率调度器: "cosine", "step", "linear"
+  warmup_epochs: 3
+  device: "cuda"  # "cuda" 或 "cpu"
+  save_dir: "checkpoints"
+  log_interval: 10
+  save_interval: 5
+
+# 损失函数配置
+loss:
+  name: "cross_entropy"  # 可选: "cross_entropy", "dice", "focal", "bce"
+  class_weights: [1.0, 2.0]  # 类别权重 [背景, 前景]
+
+# 优化器配置
+optimizer:
+  name: "adamw"  # 可选: "adam", "adamw", "sgd"
+  beta1: 0.9
+  beta2: 0.999
+
+# 验证配置
+validation:
+  interval: 1  # 每隔多少个epoch验证一次
+  metrics: ["iou", "dice", "accuracy"] 
