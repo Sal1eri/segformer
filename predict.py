@@ -1,142 +1,106 @@
 import os
-import argparse
 import torch
 import numpy as np
-import cv2
 from PIL import Image
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+from torchvision import transforms
+import argparse
 
-from src.model import create_model
-from utils.utils import load_config, visualize_predictions
-import albumentations as A
+from models.transunet import TransUNet
+import config
 
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Segformer预测脚本')
-    parser.add_argument('--config', type=str, default='configs/config.yaml', help='配置文件路径')
-    parser.add_argument('--checkpoint', type=str, required=True, help='模型检查点路径')
-    parser.add_argument('--input-dir', type=str, required=True, help='输入图像目录')
-    parser.add_argument('--output-dir', type=str, default='predictions', help='输出目录')
-    parser.add_argument('--device', type=str, default='cuda', help='使用的设备 (cuda/cpu)')
-    parser.add_argument('--visual', action='store_true', help='可视化预测结果')
-    return parser.parse_args()
-
-
-def predict_image(model, image_path, config, device):
-    """
-    预测单张图像
+def predict_image(model, image_path, output_path=None, threshold=0.5):
+    # 加载和预处理图像
+    image = Image.open(image_path).convert("RGB")
+    original_size = image.size
     
-    Args:
-        model: 模型
-        image_path: 图像路径
-        config: 配置字典
-        device: 设备
-    
-    Returns:
-        tuple: (原图, 预测结果)
-    """
-    # 读取图像
-    image = cv2.imread(image_path)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-    h, w = image.shape[:2]
-    
-    # 预处理
-    img_size = config['data']['img_size']
-    transform = A.Compose([
-        A.Resize(height=img_size[0], width=img_size[1]),
+    transform = transforms.Compose([
+        transforms.Resize((config.IMAGE_SIZE, config.IMAGE_SIZE)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
-    transformed = transform(image=image)
-    image_transformed = transformed['image']
     
-    # 转换为张量
-    image_tensor = torch.from_numpy(image_transformed).permute(2, 0, 1).float() / 255.0
-    image_tensor = image_tensor.unsqueeze(0).to(device)
+    image_tensor = transform(image).unsqueeze(0)
     
     # 预测
+    device = torch.device(config.DEVICE)
+    image_tensor = image_tensor.to(device)
     model.eval()
+    
     with torch.no_grad():
-        outputs = model(image_tensor)
-        logits = outputs['logits']
-        pred = outputs['preds'][0].cpu().numpy()
+        output = model(image_tensor)
+        pred = torch.sigmoid(output)
+        pred = (pred > threshold).float()
     
-    # 调整大小为原始图像尺寸
-    pred_resized = cv2.resize(pred.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+    # 转换为图像
+    pred_np = pred.squeeze().cpu().numpy()
     
-    return image, pred_resized
+    # 缩放回原始大小
+    pred_image = Image.fromarray((pred_np * 255).astype(np.uint8)).resize(original_size)
+    
+    # 保存或显示结果
+    if output_path:
+        pred_image.save(output_path)
+    
+    # 创建可视化结果
+    plt.figure(figsize=(12, 4))
+    
+    plt.subplot(1, 3, 1)
+    plt.imshow(image)
+    plt.title('原始图像')
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 2)
+    plt.imshow(pred_np, cmap='gray')
+    plt.title('预测 (调整大小)')
+    plt.axis('off')
+    
+    plt.subplot(1, 3, 3)
+    plt.imshow(np.array(pred_image), cmap='gray')
+    plt.title('预测 (原始大小)')
+    plt.axis('off')
+    
+    plt.tight_layout()
+    
+    if output_path:
+        plt.savefig(output_path.replace('.png', '_comparison.png'))
+    else:
+        plt.show()
+    
+    return pred_image
 
-
-def predict_directory(model, input_dir, output_dir, config, device, visual=False):
-    """
-    预测目录中的所有图像
+def main():
+    parser = argparse.ArgumentParser(description='使用TransUNet预测分割掩码')
+    parser.add_argument('--image', type=str, required=True, help='输入图像路径')
+    parser.add_argument('--output', type=str, default=None, help='保存输出掩码的路径')
+    parser.add_argument('--checkpoint', type=str, default=os.path.join(config.CHECKPOINT_DIR, 'best_model.pth'), 
+                        help='模型检查点路径')
+    parser.add_argument('--threshold', type=float, default=0.5, help='二值分割的阈值')
     
-    Args:
-        model: 模型
-        input_dir: 输入目录
-        output_dir: 输出目录
-        config: 配置字典
-        device: 设备
-        visual: 是否可视化
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    if visual:
-        visual_dir = os.path.join(output_dir, 'visualization')
-        os.makedirs(visual_dir, exist_ok=True)
+    args = parser.parse_args()
     
-    # 获取所有图像文件
-    image_files = [f for f in os.listdir(input_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+    # 初始化模型
+    model = TransUNet(
+        img_size=config.IMAGE_SIZE,
+        patch_size=config.PATCH_SIZE,
+        in_channels=3,
+        num_classes=config.NUM_CLASSES,
+        embed_dim=config.HIDDEN_SIZE,
+        depth=config.NUM_LAYERS,
+        n_heads=config.NUM_HEADS,
+        mlp_ratio=config.MLP_RATIO
+    )
     
-    for image_file in tqdm(image_files, desc='预测中'):
-        image_path = os.path.join(input_dir, image_file)
-        
-        # 预测
-        image, pred = predict_image(model, image_path, config, device)
-        
-        # 将预测结果转换为二值图像（0和255）
-        pred_binary = (pred > 0).astype(np.uint8) * 255
-        
-        # 保存预测结果
-        output_path = os.path.join(output_dir, os.path.splitext(image_file)[0] + '_mask.png')
-        cv2.imwrite(output_path, pred_binary)
-        
-        # 可视化
-        if visual:
-            # 创建可视化图像
-            fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-            
-            axes[0].imshow(image)
-            axes[0].set_title('原图')
-            axes[0].axis('off')
-            
-            axes[1].imshow(pred_binary, cmap='gray')
-            axes[1].set_title('预测掩码')
-            axes[1].axis('off')
-            
-            plt.tight_layout()
-            plt.savefig(os.path.join(visual_dir, os.path.splitext(image_file)[0] + '_visual.png'))
-            plt.close()
-
-
-def main(args):
-    # 加载配置
-    config = load_config(args.config)
-    
-    # 设置设备
-    device = torch.device(args.device if torch.cuda.is_available() and args.device == 'cuda' else 'cpu')
-    print(f"使用设备: {device}")
-    
-    # 加载模型
-    model = create_model(config)
-    checkpoint = torch.load(args.checkpoint, map_location=device)
-    model.load_state_dict(checkpoint['model'])
-    model.to(device)
-    print(f"从 {args.checkpoint} 加载模型")
+    # 加载模型权重
+    device = torch.device(config.DEVICE)
+    model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+    model = model.to(device)
     
     # 预测
-    predict_directory(model, args.input_dir, args.output_dir, config, device, args.visual)
-    print(f"预测完成，结果保存在 {args.output_dir}")
+    output_path = args.output if args.output else 'prediction.png'
+    predict_image(model, args.image, output_path, args.threshold)
+    
+    print(f'预测结果已保存到 {output_path}')
 
-
-if __name__ == "__main__":
-    args = parse_args()
-    main(args) 
+if __name__ == '__main__':
+    main() 
