@@ -8,7 +8,7 @@ VAL_MASK_DIR = 'data/validation/segmentations'
 
 # 训练参数
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'  # 使用 'cpu' 如果没有GPU
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 LEARNING_RATE = 1e-4
 NUM_EPOCHS = 100
 IMAGE_SIZE = 256  # 输入图像尺寸
