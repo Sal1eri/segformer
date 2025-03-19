@@ -112,6 +112,11 @@ def create_dataloaders(config):
     batch_size = config['data']['batch_size']
     num_workers = config['data']['num_workers']
     
+    # 获取额外的数据加载配置
+    pin_memory = config['data'].get('pin_memory', True)
+    prefetch_factor = config['data'].get('prefetch_factor', 2)
+    persistent_workers = config['data'].get('persistent_workers', False)
+    
     train_transform = get_transforms(img_size, is_train=True) if config['data']['augmentation'] else get_transforms(img_size, is_train=False)
     val_transform = get_transforms(img_size, is_train=False)
     
@@ -156,12 +161,15 @@ def create_dataloaders(config):
         is_train=False
     )
     
+    # 使用更多优化选项创建数据加载器
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=persistent_workers if num_workers > 0 else False,
         drop_last=True
     )
     
@@ -170,7 +178,9 @@ def create_dataloaders(config):
         batch_size=batch_size,
         shuffle=False,
         num_workers=num_workers,
-        pin_memory=True
+        pin_memory=pin_memory,
+        prefetch_factor=prefetch_factor,
+        persistent_workers=persistent_workers if num_workers > 0 else False
     )
     
     return train_loader, val_loader 
