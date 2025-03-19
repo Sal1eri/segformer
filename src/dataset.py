@@ -115,15 +115,42 @@ def create_dataloaders(config):
     train_transform = get_transforms(img_size, is_train=True) if config['data']['augmentation'] else get_transforms(img_size, is_train=False)
     val_transform = get_transforms(img_size, is_train=False)
     
+    # 处理Kaggle环境的数据路径
+    train_dir = config['data']['train_dir']
+    val_dir = config['data']['val_dir']
+    
+    # 检查是否为Kaggle环境
+    if os.path.exists('/kaggle/input'):
+        # 在Kaggle中寻找数据集
+        kaggle_datasets = [f for f in os.listdir('/kaggle/input') if f.startswith('segformer-data')]
+        if kaggle_datasets:
+            kaggle_data_dir = os.path.join('/kaggle/input', kaggle_datasets[0])
+            print(f"在Kaggle中找到数据集目录: {kaggle_data_dir}")
+            
+            # 尝试找到训练和验证数据
+            if os.path.exists(os.path.join(kaggle_data_dir, 'training')):
+                train_dir = os.path.join(kaggle_data_dir, 'training')
+                print(f"使用Kaggle训练数据: {train_dir}")
+            elif os.path.exists(os.path.join(kaggle_data_dir, 'train')):
+                train_dir = os.path.join(kaggle_data_dir, 'train')
+                print(f"使用Kaggle训练数据: {train_dir}")
+            
+            if os.path.exists(os.path.join(kaggle_data_dir, 'validation')):
+                val_dir = os.path.join(kaggle_data_dir, 'validation')
+                print(f"使用Kaggle验证数据: {val_dir}")
+            elif os.path.exists(os.path.join(kaggle_data_dir, 'val')):
+                val_dir = os.path.join(kaggle_data_dir, 'val')
+                print(f"使用Kaggle验证数据: {val_dir}")
+    
     train_dataset = SegmentationDataset(
-        root_dir=config['data']['train_dir'],
+        root_dir=train_dir,
         img_size=img_size,
         transform=train_transform,
         is_train=True
     )
     
     val_dataset = SegmentationDataset(
-        root_dir=config['data']['val_dir'],
+        root_dir=val_dir,
         img_size=img_size,
         transform=val_transform,
         is_train=False

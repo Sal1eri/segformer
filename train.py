@@ -14,11 +14,13 @@ from utils.optimizer import create_optimizer, create_scheduler
 from utils.metrics import calculate_metrics
 from utils.utils import load_config, set_seed, save_checkpoint, visualize_predictions
 
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
+# 禁用wandb
+WANDB_AVAILABLE = False
+# try:
+#     import wandb
+#     WANDB_AVAILABLE = True
+# except ImportError:
+#     WANDB_AVAILABLE = False
 
 
 def parse_args():
@@ -73,12 +75,12 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device
         })
         
         # 记录日志
-        if WANDB_AVAILABLE and not args.no_wandb:
-            wandb.log({
-                'train/loss': loss.item(),
-                'train/lr': optimizer.param_groups[0]['lr'],
-                **{f'train/{metric}': value for metric, value in batch_metrics.items()}
-            })
+        # if WANDB_AVAILABLE and not args.no_wandb:
+        #     wandb.log({
+        #         'train/loss': loss.item(),
+        #         'train/lr': optimizer.param_groups[0]['lr'],
+        #         **{f'train/{metric}': value for metric, value in batch_metrics.items()}
+        #     })
         
         # 可视化
         if (batch_idx + 1) % config['training']['log_interval'] == 0:
@@ -133,11 +135,11 @@ def validate(model, val_loader, criterion, device, config):
             })
             
             # 记录日志
-            if WANDB_AVAILABLE and not args.no_wandb and batch_idx == num_batches - 1:
-                wandb.log({
-                    'val/loss': val_loss / (batch_idx + 1),
-                    **{f'val/{metric}': val_metrics[metric] / (batch_idx + 1) for metric in val_metrics}
-                })
+            # if WANDB_AVAILABLE and not args.no_wandb and batch_idx == num_batches - 1:
+            #     wandb.log({
+            #         'val/loss': val_loss / (batch_idx + 1),
+            #         **{f'val/{metric}': val_metrics[metric] / (batch_idx + 1) for metric in val_metrics}
+            #     })
         
         # 可视化验证集样本
         visualize_dir = os.path.join(config['training']['save_dir'], 'visualizations', 'validation')
@@ -157,6 +159,9 @@ def validate(model, val_loader, criterion, device, config):
 
 
 def main(args):
+    # 强制禁用wandb
+    args.no_wandb = True
+    
     # 加载配置
     config = load_config(args.config)
     
@@ -168,12 +173,12 @@ def main(args):
     os.makedirs(save_dir, exist_ok=True)
     
     # 初始化wandb
-    if WANDB_AVAILABLE and not args.no_wandb:
-        wandb.init(
-            project="segformer-segmentation",
-            config=config,
-            name=f"segformer-{config['model']['backbone']}-{time.strftime('%Y%m%d-%H%M%S')}"
-        )
+    # if WANDB_AVAILABLE and not args.no_wandb:
+    #     wandb.init(
+    #         project="segformer-segmentation",
+    #         config=config,
+    #         name=f"segformer-{config['model']['backbone']}-{time.strftime('%Y%m%d-%H%M%S')}"
+    #     )
     
     # 设置设备
     device = torch.device(config['training']['device'] if torch.cuda.is_available() else "cpu")
@@ -229,14 +234,14 @@ def main(args):
             print(f"验证 - 损失: {val_loss:.4f}, 指标: {val_metrics}")
             
             # 记录日志
-            if WANDB_AVAILABLE and not args.no_wandb:
-                wandb.log({
-                    'epoch': epoch + 1,
-                    'train/epoch_loss': train_loss,
-                    'val/epoch_loss': val_loss,
-                    **{f'train/epoch_{metric}': value for metric, value in train_metrics.items()},
-                    **{f'val/epoch_{metric}': value for metric, value in val_metrics.items()}
-                })
+            # if WANDB_AVAILABLE and not args.no_wandb:
+            #     wandb.log({
+            #         'epoch': epoch + 1,
+            #         'train/epoch_loss': train_loss,
+            #         'val/epoch_loss': val_loss,
+            #         **{f'train/epoch_{metric}': value for metric, value in train_metrics.items()},
+            #         **{f'val/epoch_{metric}': value for metric, value in val_metrics.items()}
+            #     })
             
             # 保存检查点
             if (epoch + 1) % config['training']['save_interval'] == 0:
@@ -260,8 +265,8 @@ def main(args):
     print(f"训练完成！最佳分数: {best_score:.4f}")
     
     # 结束wandb
-    if WANDB_AVAILABLE and not args.no_wandb:
-        wandb.finish()
+    # if WANDB_AVAILABLE and not args.no_wandb:
+    #     wandb.finish()
 
 
 if __name__ == "__main__":
