@@ -24,7 +24,7 @@ def calculate_iou(pred, target, n_classes=2, ignore_index=None):
         pred = pred[mask]
         target = target[mask]
     
-    confusion_matrix = torch.zeros(n_classes, n_classes)
+    confusion_matrix = torch.zeros(n_classes, n_classes, device=pred.device)
     for t, p in zip(target, pred):
         confusion_matrix[t.long(), p.long()] += 1
     
@@ -68,8 +68,9 @@ def calculate_dice(pred, target, n_classes=2, ignore_index=None):
         target = target[mask]
     
     # 将预测和目标转换为one-hot编码
-    pred_one_hot = torch.eye(n_classes)[pred.long()]
-    target_one_hot = torch.eye(n_classes)[target.long()]
+    device = pred.device
+    pred_one_hot = torch.eye(n_classes, device=device)[pred.long()]
+    target_one_hot = torch.eye(n_classes, device=device)[target.long()]
     
     # 计算Dice系数
     intersection = torch.sum(pred_one_hot * target_one_hot, dim=0)
