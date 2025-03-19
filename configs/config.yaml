@@ -9,9 +9,9 @@ model:
 data:
   train_dir: "data/training"
   val_dir: "data/validation"
-  img_size: [512, 512]  # 输入图像的大小 [高度, 宽度]
-  batch_size: 16  # 增大批量大小
-  num_workers: 8  # 增加工作进程数
+  img_size: [384, 384]  # 减小图像大小以节省内存
+  batch_size: 8  # 减小批量大小
+  num_workers: 4  # 减少工作进程数
   pin_memory: true  # 启用内存锁定
   prefetch_factor: 2  # 预取因子
   persistent_workers: true  # 持久化工作进程
@@ -30,8 +30,8 @@ training:
   save_interval: 5
   # 新增：启用混合精度训练
   mixed_precision: true
-  # 新增：启用梯度累积（可选）
-  gradient_accumulation_steps: 1
+  # 新增：启用梯度累积
+  gradient_accumulation_steps: 2  # 增加梯度累积步数
 
 # 损失函数配置
 loss:

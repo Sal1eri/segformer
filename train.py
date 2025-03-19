@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from torch.cuda.amp import autocast, GradScaler
 
 from src.dataset import create_dataloaders
 from src.model import create_model
@@ -32,7 +33,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device, epoch, config):
+def train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device, epoch, config, scaler):
     model.train()
     epoch_loss = 0
     epoch_metrics = {metric: 0 for metric in config['validation']['metrics']}
@@ -40,24 +41,39 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device
     
     progress_bar = tqdm(train_loader, desc=f"训练轮次 {epoch+1}/{config['training']['epochs']}")
     
+    # 获取梯度累积步数
+    gradient_accumulation_steps = config['training'].get('gradient_accumulation_steps', 1)
+    
     for batch_idx, batch in enumerate(progress_bar):
         images = batch['image'].to(device)
         masks = batch['mask'].to(device)
         
-        # 前向传播
-        outputs = model(images)
-        logits = outputs['logits']
-        
-        # 计算损失
-        loss = criterion(logits, masks)
+        # 使用混合精度训练
+        with autocast():
+            # 前向传播
+            outputs = model(images)
+            logits = outputs['logits']
+            
+            # 计算损失
+            loss = criterion(logits, masks)
+            # 考虑梯度累积
+            loss = loss / gradient_accumulation_steps
         
         # 反向传播和优化
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        if config['training'].get('mixed_precision', False):
+            scaler.scale(loss).backward()
+            if (batch_idx + 1) % gradient_accumulation_steps == 0:
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
+        else:
+            loss.backward()
+            if (batch_idx + 1) % gradient_accumulation_steps == 0:
+                optimizer.step()
+                optimizer.zero_grad()
         
         # 更新学习率
-        if scheduler is not None:
+        if scheduler is not None and (batch_idx + 1) % gradient_accumulation_steps == 0:
             scheduler.step()
         
         # 计算指标
@@ -65,7 +81,7 @@ def train_one_epoch(model, train_loader, criterion, optimizer, scheduler, device
         batch_metrics = calculate_metrics(preds, masks, config['validation']['metrics'])
         
         # 更新进度条
-        epoch_loss += loss.item()
+        epoch_loss += loss.item() * gradient_accumulation_steps
         for metric, value in batch_metrics.items():
             epoch_metrics[metric] += value
         
@@ -202,6 +218,9 @@ def main(args):
     num_steps = len(train_loader) * config['training']['epochs']
     scheduler = create_scheduler(optimizer, config, num_steps)
     
+    # 初始化混合精度训练的scaler
+    scaler = GradScaler() if config['training'].get('mixed_precision', False) else None
+    
     # 初始化训练状态
     start_epoch = 0
     best_score = 0
@@ -213,6 +232,8 @@ def main(args):
         optimizer.load_state_dict(checkpoint['optimizer'])
         if scheduler is not None and checkpoint['scheduler'] is not None:
             scheduler.load_state_dict(checkpoint['scheduler'])
+        if scaler is not None and checkpoint.get('scaler') is not None:
+            scaler.load_state_dict(checkpoint['scaler'])
         start_epoch = checkpoint['epoch'] + 1
         best_score = checkpoint['best_score']
         print(f"恢复训练，从轮次 {start_epoch} 开始，最佳分数: {best_score:.4f}")
@@ -223,7 +244,7 @@ def main(args):
         
         # 训练一个轮次
         train_loss, train_metrics = train_one_epoch(
-            model, train_loader, criterion, optimizer, scheduler, device, epoch, config
+            model, train_loader, criterion, optimizer, scheduler, device, epoch, config, scaler
         )
         
         print(f"训练 - 损失: {train_loss:.4f}, 指标: {train_metrics}")
@@ -248,7 +269,8 @@ def main(args):
                 save_path = os.path.join(save_dir, f"checkpoint_epoch_{epoch+1}.pth")
                 save_checkpoint(
                     model, optimizer, scheduler, epoch,
-                    config, best_score, val_metrics, save_path
+                    config, best_score, val_metrics, save_path,
+                    scaler=scaler
                 )
             
             # 保存最佳模型
@@ -258,7 +280,8 @@ def main(args):
                 best_path = os.path.join(save_dir, "best_model.pth")
                 save_checkpoint(
                     model, optimizer, scheduler, epoch,
-                    config, best_score, val_metrics, best_path
+                    config, best_score, val_metrics, best_path,
+                    scaler=scaler
                 )
                 print(f"保存最佳模型，分数: {best_score:.4f}")
     
